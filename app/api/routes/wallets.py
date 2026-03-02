@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from sqlalchemy.orm import Session
 
@@ -17,32 +19,26 @@ router = APIRouter(prefix="/wallets", tags=["wallets"])
 
 @router.post("/{user_id}", response_model=WalletResponse, status_code=status.HTTP_201_CREATED)
 def create_wallet(
-    user_id: str = Path(
+    user_id: UUID = Path(
         ...,
-        min_length=36,
-        max_length=36,
         description="Unique user identifier returned by POST /users",
         examples=["11111111-2222-3333-4444-555555555555"],
     ),
     db: Session = Depends(get_db),
 ) -> WalletResponse:
     try:
-        wallet = WalletService.create_wallet(db, user_id)
+        wallet = WalletService.create_wallet(db, str(user_id))
         return wallet
     except UserNotFoundError as exc:
-        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except WalletAlreadyExistsError as exc:
-        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/{user_id}/credit", response_model=WalletResponse)
 def credit_wallet(
-    user_id: str = Path(
+    user_id: UUID = Path(
         ...,
-        min_length=36,
-        max_length=36,
         description="Wallet owner user identifier returned by POST /users",
         examples=["11111111-2222-3333-4444-555555555555"],
     ),
@@ -50,19 +46,16 @@ def credit_wallet(
     db: Session = Depends(get_db),
 ) -> WalletResponse:
     try:
-        wallet = WalletService.credit(db, user_id, payload.amount, payload.reference)
+        wallet = WalletService.credit(db, str(user_id), payload.amount, payload.reference)
         return wallet
     except WalletNotFoundError as exc:
-        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("/{user_id}/debit", response_model=WalletResponse)
 def debit_wallet(
-    user_id: str = Path(
+    user_id: UUID = Path(
         ...,
-        min_length=36,
-        max_length=36,
         description="Wallet owner user identifier returned by POST /users",
         examples=["11111111-2222-3333-4444-555555555555"],
     ),
@@ -70,29 +63,25 @@ def debit_wallet(
     db: Session = Depends(get_db),
 ) -> WalletResponse:
     try:
-        wallet = WalletService.debit(db, user_id, payload.amount, payload.reference)
+        wallet = WalletService.debit(db, str(user_id), payload.amount, payload.reference)
         return wallet
     except WalletNotFoundError as exc:
-        db.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except InsufficientFundsError as exc:
-        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("/{user_id}/balance", response_model=BalanceResponse)
 def get_wallet_balance(
-    user_id: str = Path(
+    user_id: UUID = Path(
         ...,
-        min_length=36,
-        max_length=36,
         description="Wallet owner user identifier returned by POST /users",
         examples=["11111111-2222-3333-4444-555555555555"],
     ),
     db: Session = Depends(get_db),
 ) -> BalanceResponse:
     try:
-        wallet = WalletService.get_wallet_by_user_id(db, user_id)
+        wallet = WalletService.get_wallet_by_user_id(db, str(user_id))
         return BalanceResponse(user_id=wallet.user_id, balance=wallet.balance)
     except WalletNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -100,10 +89,8 @@ def get_wallet_balance(
 
 @router.get("/{user_id}/ledger", response_model=LedgerListResponse)
 def get_wallet_ledger(
-    user_id: str = Path(
+    user_id: UUID = Path(
         ...,
-        min_length=36,
-        max_length=36,
         description="Wallet owner user identifier returned by POST /users",
         examples=["11111111-2222-3333-4444-555555555555"],
     ),
@@ -112,7 +99,7 @@ def get_wallet_ledger(
     db: Session = Depends(get_db),
 ) -> LedgerListResponse:
     try:
-        items, total = WalletService.get_ledger(db, user_id=user_id, limit=limit, offset=offset)
+        items, total = WalletService.get_ledger(db, user_id=str(user_id), limit=limit, offset=offset)
         return LedgerListResponse(items=items, total=total, limit=limit, offset=offset)
     except WalletNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

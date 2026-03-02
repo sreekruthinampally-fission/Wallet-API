@@ -17,13 +17,17 @@ class UserNotFoundError(Exception):
 class UserService:
     @staticmethod
     def create_user(db: Session, email: str) -> User:
-        existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-        if existing:
-            raise UserAlreadyExistsError(f"User already exists for email '{email}'")
-
-        user = User(id=str(uuid4()), email=email)
-        db.add(user)
-        db.commit()
+        normalized_email = email.strip().lower()
+        user = User(id=str(uuid4()), email=normalized_email)
+        try:
+            existing = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+            if existing:
+                raise UserAlreadyExistsError(f"User already exists for email '{normalized_email}'")
+            db.add(user)
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
         db.refresh(user)
         return user
 

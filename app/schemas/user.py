@@ -10,7 +10,6 @@ class CreateUserRequest(BaseModel):
     @classmethod
     def validate_email(cls, value: str) -> str:
         email = value.strip().lower()
-        # Minimal email validation without external dependency.
         if "@" not in email or email.count("@") != 1:
             raise ValueError("Invalid email format")
         local, domain = email.split("@")

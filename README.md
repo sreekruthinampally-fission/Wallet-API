@@ -10,6 +10,9 @@ Backend wallet service using Python, FastAPI, and PostgreSQL.
 - Get transaction history (ledger with pagination).
 - Every credit/debit creates a ledger entry.
 - Data persisted in PostgreSQL.
+- Strict amount validation (positive, max 2 decimal places).
+- Transaction-safe balance + ledger updates.
+- Request ID + structured request/error logging.
 
 ## Tech Stack
 - FastAPI
@@ -35,6 +38,8 @@ app/
 alembic/
   env.py
   versions/0001_create_wallet_and_ledger.py
+docs/
+  ARCHITECTURE.md
 tests/
 ```
 
@@ -97,6 +102,17 @@ Tests expect a reachable PostgreSQL database via `TEST_DATABASE_URL` (or `DATABA
 ```bash
 pytest -q
 ```
+
+## Config (Environment Variables)
+- `APP_NAME`
+- `ENVIRONMENT`
+- `DEBUG`
+- `LOG_LEVEL`
+- `DATABASE_URL`
+- `DB_POOL_SIZE`
+- `DB_MAX_OVERFLOW`
+- `DB_POOL_TIMEOUT`
+- `DB_POOL_RECYCLE`
 
 ## Notes
 - Credit/debit are wrapped in DB transactions.

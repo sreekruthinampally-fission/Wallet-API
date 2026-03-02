@@ -3,19 +3,30 @@ from decimal import Decimal
 
 from sqlalchemy.orm import sessionmaker
 
-from app.db.session import engine
-from app.services.wallet_service import InsufficientFundsError, WalletService
+from app.database import engine
+from app.services import InsufficientFundsError, WalletService
 
 
-def create_user(client, email: str = "user1@example.com") -> str:
-    response = client.post("/users", json={"email": email})
+def register_user(client, email: str = "user1@example.com", password: str = "StrongPass123!") -> str:
+    response = client.post("/auth/register", json={"email": email, "password": password})
     assert response.status_code == 201
     return response.json()["id"]
 
 
+def login_user(client, email: str = "user1@example.com", password: str = "StrongPass123!") -> str:
+    response = client.post("/auth/login", json={"email": email, "password": password})
+    assert response.status_code == 200
+    return response.json()["access_token"]
+
+
+def auth_headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_create_wallet(client):
-    user_id = create_user(client)
-    response = client.post(f"/wallets/{user_id}")
+    user_id = register_user(client)
+    token = login_user(client)
+    response = client.post("/wallets", headers=auth_headers(token))
     assert response.status_code == 201
     body = response.json()
     assert body["user_id"] == user_id
@@ -23,13 +34,18 @@ def test_create_wallet(client):
 
 
 def test_credit_updates_balance_and_ledger(client):
-    user_id = create_user(client)
-    client.post(f"/wallets/{user_id}")
-    credit = client.post(f"/wallets/{user_id}/credit", json={"amount": "50.00", "reference": "salary"})
+    register_user(client)
+    token = login_user(client)
+    client.post("/wallets", headers=auth_headers(token))
+    credit = client.post(
+        "/wallets/credit",
+        json={"amount": "50.00", "reference": "salary"},
+        headers=auth_headers(token),
+    )
     assert credit.status_code == 200
     assert Decimal(credit.json()["balance"]) == Decimal("50.00")
 
-    ledger = client.get(f"/wallets/{user_id}/ledger")
+    ledger = client.get("/wallets/ledger", headers=auth_headers(token))
     assert ledger.status_code == 200
     items = ledger.json()["items"]
     assert len(items) == 1
@@ -39,67 +55,116 @@ def test_credit_updates_balance_and_ledger(client):
 
 
 def test_debit_success(client):
-    user_id = create_user(client)
-    client.post(f"/wallets/{user_id}")
-    client.post(f"/wallets/{user_id}/credit", json={"amount": "100.00"})
-    debit = client.post(f"/wallets/{user_id}/debit", json={"amount": "40.00"})
+    register_user(client)
+    token = login_user(client)
+    client.post("/wallets", headers=auth_headers(token))
+    client.post("/wallets/credit", json={"amount": "100.00"}, headers=auth_headers(token))
+    debit = client.post("/wallets/debit", json={"amount": "40.00"}, headers=auth_headers(token))
     assert debit.status_code == 200
     assert Decimal(debit.json()["balance"]) == Decimal("60.00")
 
-    balance = client.get(f"/wallets/{user_id}/balance")
+    balance = client.get("/wallets/balance", headers=auth_headers(token))
     assert balance.status_code == 200
     assert Decimal(balance.json()["balance"]) == Decimal("60.00")
 
 
 def test_debit_insufficient_funds_has_no_ledger_row(client):
-    user_id = create_user(client)
-    client.post(f"/wallets/{user_id}")
-    client.post(f"/wallets/{user_id}/credit", json={"amount": "20.00"})
-    failed = client.post(f"/wallets/{user_id}/debit", json={"amount": "50.00"})
+    register_user(client)
+    token = login_user(client)
+    client.post("/wallets", headers=auth_headers(token))
+    client.post("/wallets/credit", json={"amount": "20.00"}, headers=auth_headers(token))
+    failed = client.post("/wallets/debit", json={"amount": "50.00"}, headers=auth_headers(token))
     assert failed.status_code == 409
 
-    ledger = client.get(f"/wallets/{user_id}/ledger")
+    ledger = client.get("/wallets/ledger", headers=auth_headers(token))
     items = ledger.json()["items"]
     assert len(items) == 1
     assert items[0]["entry_type"] == "credit"
 
 
 def test_ledger_pagination(client):
-    user_id = create_user(client)
-    client.post(f"/wallets/{user_id}")
+    register_user(client)
+    token = login_user(client)
+    client.post("/wallets", headers=auth_headers(token))
     for value in ["10.00", "20.00", "30.00"]:
-        client.post(f"/wallets/{user_id}/credit", json={"amount": value})
+        client.post("/wallets/credit", json={"amount": value}, headers=auth_headers(token))
 
-    first_page = client.get(f"/wallets/{user_id}/ledger?limit=2&offset=0")
-    second_page = client.get(f"/wallets/{user_id}/ledger?limit=2&offset=2")
+    first_page = client.get("/wallets/ledger?limit=2&offset=0", headers=auth_headers(token))
+    second_page = client.get("/wallets/ledger?limit=2&offset=2", headers=auth_headers(token))
     assert first_page.status_code == 200
     assert second_page.status_code == 200
     assert len(first_page.json()["items"]) == 2
     assert len(second_page.json()["items"]) == 1
 
 
-def test_create_wallet_for_missing_user_fails(client):
-    response = client.post("/wallets/00000000-0000-0000-0000-000000000000")
+def test_wallet_operations_fail_if_wallet_not_created(client):
+    register_user(client, "owner@example.com")
+    token = login_user(client, "owner@example.com")
+    response = client.post("/wallets/credit", json={"amount": "10.00"}, headers=auth_headers(token))
     assert response.status_code == 404
 
 
+def test_wallet_apis_require_jwt(client):
+    user_id = register_user(client, "auth-required@example.com")
+    assert user_id
+    response = client.post("/wallets")
+    assert response.status_code == 401
+
+
+def test_wallet_access_is_scoped_to_token_owner(client):
+    register_user(client, "owner2@example.com")
+    register_user(client, "attacker@example.com")
+    owner_token = login_user(client, "owner2@example.com")
+    attacker_token = login_user(client, "attacker@example.com")
+
+    create_wallet_resp = client.post("/wallets", headers=auth_headers(owner_token))
+    assert create_wallet_resp.status_code == 201
+    client.post("/wallets/credit", json={"amount": "50.00"}, headers=auth_headers(owner_token))
+
+    attacker_balance = client.get("/wallets/balance", headers=auth_headers(attacker_token))
+    assert attacker_balance.status_code == 404
+    owner_balance = client.get("/wallets/balance", headers=auth_headers(owner_token))
+    assert owner_balance.status_code == 200
+    assert Decimal(owner_balance.json()["balance"]) == Decimal("50.00")
+
+
+def test_login_fails_for_invalid_password(client):
+    register_user(client, "login-fail@example.com", "StrongPass123!")
+    response = client.post("/auth/login", json={"email": "login-fail@example.com", "password": "WrongPass123!"})
+    assert response.status_code == 401
+
+
+def test_register_duplicate_email_returns_conflict(client):
+    register_user(client, "dup@example.com", "StrongPass123!")
+    response = client.post("/auth/register", json={"email": "dup@example.com", "password": "StrongPass123!"})
+    assert response.status_code == 409
+
+
 def test_credit_rejects_more_than_two_decimal_places(client):
-    user_id = create_user(client, "precision@example.com")
-    client.post(f"/wallets/{user_id}")
-    response = client.post(f"/wallets/{user_id}/credit", json={"amount": "10.999"})
+    register_user(client, "precision@example.com")
+    token = login_user(client, "precision@example.com")
+    client.post("/wallets", headers=auth_headers(token))
+    response = client.post("/wallets/credit", json={"amount": "10.999"}, headers=auth_headers(token))
     assert response.status_code == 422
 
 
-def test_wallet_routes_require_valid_uuid(client):
-    response = client.post("/wallets/not-a-uuid")
-    assert response.status_code == 422
+def test_wallet_routes_no_longer_accept_user_id_path(client):
+    register_user(client, "uuid@example.com")
+    token = login_user(client, "uuid@example.com")
+    response = client.post("/wallets/not-a-uuid", headers=auth_headers(token))
+    assert response.status_code == 404
 
 
 def test_concurrent_debits_are_consistent(client):
-    user_id = create_user(client, "concurrency@example.com")
-    create_wallet_response = client.post(f"/wallets/{user_id}")
+    user_id = register_user(client, "concurrency@example.com")
+    token = login_user(client, "concurrency@example.com")
+    create_wallet_response = client.post("/wallets", headers=auth_headers(token))
     assert create_wallet_response.status_code == 201
-    seed_credit = client.post(f"/wallets/{user_id}/credit", json={"amount": "100.00"})
+    seed_credit = client.post(
+        "/wallets/credit",
+        json={"amount": "100.00"},
+        headers=auth_headers(token),
+    )
     assert seed_credit.status_code == 200
 
     SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, expire_on_commit=False)
@@ -126,11 +191,11 @@ def test_concurrent_debits_are_consistent(client):
     assert successful_debits == 10
     assert failed_debits == 40
 
-    balance_response = client.get(f"/wallets/{user_id}/balance")
+    balance_response = client.get("/wallets/balance", headers=auth_headers(token))
     assert balance_response.status_code == 200
     assert Decimal(balance_response.json()["balance"]) == Decimal("0.00")
 
-    ledger_response = client.get(f"/wallets/{user_id}/ledger?limit=200&offset=0")
+    ledger_response = client.get("/wallets/ledger?limit=200&offset=0", headers=auth_headers(token))
     assert ledger_response.status_code == 200
     items = ledger_response.json()["items"]
 

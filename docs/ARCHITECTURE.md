@@ -1,16 +1,16 @@
 # Architecture
 
 ## Layers
-- `app/api/`: HTTP routing only (request parsing, response mapping, status codes)
-- `app/services/`: business rules and transaction orchestration
-- `app/models/`: SQLAlchemy ORM entities
-- `app/schemas/`: Pydantic request/response contracts
-- `app/db/`: SQLAlchemy base/session setup
-- `app/core/`: app configuration and shared core settings
+- `app/routes.py`: HTTP routing only (request parsing, response mapping, status codes)
+- `app/services.py`: business rules and transaction orchestration
+- `app/models.py`: SQLAlchemy ORM entities
+- `app/schemas.py`: Pydantic request/response contracts
+- `app/database.py`: SQLAlchemy base/session/engine setup
+- `app/config.py`: app configuration and environment settings
 
 ## Request Flow
-1. Request hits route in `app/api/routes/*`
-2. Route calls service in `app/services/*`
+1. Request hits route in `app/routes.py`
+2. Route calls service in `app/services.py`
 3. Service reads/writes ORM models through SQLAlchemy session
 4. Route returns response schema
 

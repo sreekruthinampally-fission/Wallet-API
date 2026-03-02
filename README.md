@@ -3,6 +3,7 @@
 Backend wallet service using Python, FastAPI, and PostgreSQL.
 
 ## Features
+- Register/login users with JWT auth.
 - Create one wallet per user.
 - Credit money to wallet.
 - Debit money from wallet (never allows negative balance).
@@ -10,6 +11,7 @@ Backend wallet service using Python, FastAPI, and PostgreSQL.
 - Get transaction history (ledger with pagination).
 - Every credit/debit creates a ledger entry.
 - Data persisted in PostgreSQL.
+- Wallet APIs require JWT and enforce owner-only access.
 - Strict amount validation (positive, max 2 decimal places).
 - Transaction-safe balance + ledger updates.
 - Request ID + structured request/error logging.
@@ -18,26 +20,19 @@ Backend wallet service using Python, FastAPI, and PostgreSQL.
 - FastAPI
 - SQLAlchemy 2.x
 - PostgreSQL
-- Alembic
 - Pytest
 
 ## Project Structure
 ```text
 app/
-  api/
-    router.py
-    routes/
-      users.py
-      wallets.py
-  core/config.py
-  db/{base.py,session.py}
-  models/{user.py,wallet.py,ledger_entry.py}
-  schemas/{user.py,wallet.py,ledger.py}
-  services/{user_service.py,wallet_service.py}
+  config.py
+  database.py
+  models.py
+  schemas.py
+  services.py
+  routes.py
+  init_db.py
   main.py
-alembic/
-  env.py
-  versions/0001_create_wallet_and_ledger.py
 docs/
   ARCHITECTURE.md
 tests/
@@ -59,9 +54,9 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-4. Run migrations:
+4. Initialize database schema:
 ```bash
-alembic upgrade head
+python -m app.init_db
 ```
 
 5. Start server:
@@ -75,26 +70,29 @@ http://localhost:8000/docs
 ```
 
 ## API Endpoints
-- `POST /users`
-  - Body: `{"email":"alice@example.com"}`
-- `POST /wallets/{user_id}`
-- `POST /wallets/{user_id}/credit`
+- `POST /auth/register`
+  - Body: `{"email":"alice@example.com","password":"StrongPass123!"}`
+- `POST /auth/login`
+  - Body: `{"email":"alice@example.com","password":"StrongPass123!"}`
+- `POST /wallets`
+- `POST /wallets/credit`
   - Body: `{"amount":"100.00","reference":"salary"}`
-- `POST /wallets/{user_id}/debit`
+- `POST /wallets/debit`
   - Body: `{"amount":"10.00","reference":"payment"}`
-- `GET /wallets/{user_id}/balance`
-- `GET /wallets/{user_id}/ledger?limit=50&offset=0`
+- `GET /wallets/balance`
+- `GET /wallets/ledger?limit=50&offset=0`
 - `GET /healthz`
 
 ## Example cURL
 ```bash
-curl -X POST http://localhost:8000/users -H "Content-Type: application/json" -d "{\"email\":\"alice@example.com\"}"
-# Use the returned id as USER_ID in all wallet calls below.
-curl -X POST http://localhost:8000/wallets/{USER_ID}
-curl -X POST http://localhost:8000/wallets/{USER_ID}/credit -H "Content-Type: application/json" -d "{\"amount\":\"100.00\"}"
-curl -X POST http://localhost:8000/wallets/{USER_ID}/debit -H "Content-Type: application/json" -d "{\"amount\":\"40.00\"}"
-curl http://localhost:8000/wallets/{USER_ID}/balance
-curl http://localhost:8000/wallets/{USER_ID}/ledger
+curl -X POST http://localhost:8000/auth/register -H "Content-Type: application/json" -d "{\"email\":\"alice@example.com\",\"password\":\"StrongPass123!\"}"
+curl -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" -d "{\"email\":\"alice@example.com\",\"password\":\"StrongPass123!\"}"
+# Use returned access_token as TOKEN.
+curl -X POST http://localhost:8000/wallets -H "Authorization: Bearer {TOKEN}"
+curl -X POST http://localhost:8000/wallets/credit -H "Authorization: Bearer {TOKEN}" -H "Content-Type: application/json" -d "{\"amount\":\"100.00\"}"
+curl -X POST http://localhost:8000/wallets/debit -H "Authorization: Bearer {TOKEN}" -H "Content-Type: application/json" -d "{\"amount\":\"40.00\"}"
+curl http://localhost:8000/wallets/balance -H "Authorization: Bearer {TOKEN}"
+curl http://localhost:8000/wallets/ledger -H "Authorization: Bearer {TOKEN}"
 ```
 
 ## Run Tests
@@ -113,6 +111,10 @@ pytest -q
 - `DB_MAX_OVERFLOW`
 - `DB_POOL_TIMEOUT`
 - `DB_POOL_RECYCLE`
+- `JWT_SECRET_KEY`
+- `JWT_ALGORITHM`
+- `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`
+- `PASSWORD_HASH_ITERATIONS`
 
 ## Notes
 - Credit/debit are wrapped in DB transactions.

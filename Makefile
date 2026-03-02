@@ -4,8 +4,8 @@ install:
 run:
 	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
-migrate:
-	alembic upgrade head
+initdb:
+	python -m app.init_db
 
 test:
 	pytest -q

@@ -2,13 +2,12 @@ import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.base import Base
-from app.db.session import get_db
+from app.database import Base, get_db
 from app.main import app
-from app.models import ledger_entry, user, wallet  # noqa: F401
+from app import models  # noqa: F401
 
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", os.getenv("DATABASE_URL", "postgresql+psycopg://wallet:wallet@localhost:5432/wallet_db"))
@@ -18,6 +17,14 @@ TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", os.getenv("DATABASE_URL", "po
 def test_engine():
     engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
     Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+    if "users" in inspector.get_table_names():
+        columns = {column["name"] for column in inspector.get_columns("users")}
+        if "password_hash" not in columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NOT NULL DEFAULT ''")
+                )
     yield engine
 
 
